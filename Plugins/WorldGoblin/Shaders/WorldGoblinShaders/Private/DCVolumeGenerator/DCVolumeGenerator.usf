@@ -1,0 +1,46 @@
+#include "/Engine/Generated/Material.ush"
+#include "/Engine/Public/Platform.ush"
+
+float3 Position;
+RWBuffer<float> Density;
+RWBuffer<float4> OutputColor;
+
+[numthreads(THREADS_X, THREADS_Y, THREADS_Z)]
+void DCVolumeGenerator(
+	uint3 DispatchThreadId : SV_DispatchThreadID,
+	uint GroupIndex : SV_GroupIndex )
+{
+	float4 SvPosition = float4(Position.xyz, 0);
+	
+	FMaterialPixelParameters MaterialParameters = MakeInitializedMaterialPixelParameters();
+
+	// There are various inputs we can provide to the material graph via FMaterialPixelParameters
+	// See: https://github.com/EpicGames/UnrealEngine/blob/5.0/Engine/Shaders/Private/MaterialTemplate.ush#L262
+	
+	MaterialParameters.VertexColor = half4(1, 1, 0, 1);
+	
+	FPixelMaterialInputs PixelMaterialInputs = (FPixelMaterialInputs)0;
+
+    ResolvedView = ResolveView();
+	
+	// This is the call to the material graph
+	CalcMaterialParameters(MaterialParameters, PixelMaterialInputs, SvPosition, true);
+
+	// PixelMaterialInputs is a struct that contains the outputs of the material graph
+	// Use the provided helper methods ( GetMaterialXYZ(...) ) to access the outputs
+	// See: https://github.com/EpicGames/UnrealEngine/blob/5.0/Engine/Shaders/Private/MaterialTemplate.ush#L2485
+
+    float num1 = 0;
+
+#ifdef NUM_MATERIAL_OUTPUTS_WORLDGOBLINDENSITYOUTPUT
+#if NUM_MATERIAL_OUTPUTS_WORLDGOBLINDENSITYOUTPUT > 0
+		num1 = WorldGoblinDensityOutput0(MaterialParameters);
+#endif
+#endif
+	
+    OutputColor[0] = float4(num1, SvPosition.xyz);
+
+	// You can also access custom output nodes via their respective names
+	// e.g. GetMyCustomMaterialOutput0(MaterialParameters)
+	// See: Custom node example
+}
