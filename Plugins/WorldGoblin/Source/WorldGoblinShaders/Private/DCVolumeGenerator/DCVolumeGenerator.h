@@ -26,6 +26,6 @@
 #include "RenderGraphResources.h"
 #include "Runtime/Engine/Classes/Engine/TextureRenderTarget2D.h"
 
-#define NUM_THREADS_DCVolumeGenerator_X 1
-#define NUM_THREADS_DCVolumeGenerator_Y 1
+#define NUM_THREADS_DCVolumeGenerator_X 8
+#define NUM_THREADS_DCVolumeGenerator_Y 8
 #define NUM_THREADS_DCVolumeGenerator_Z 1

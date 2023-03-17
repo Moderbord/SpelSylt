@@ -41,6 +41,9 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	FVector3f Result = FVector3f(0.f);
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	class UDCVolumeResult* Volume;
+
 protected:
 
 

@@ -32,9 +32,10 @@ void AWorldGoblinTerrain::Regenerate()
 
 	FDCVolumeGeneratorDispatchParams Params(this, 32, Generator, location);
 	FDCVolumeGeneratorInterface::Dispatch(Params, 
-		[this](FVector3f OutputColor) 
+		[this](bool Success, UDCVolumeResult* Result) 
 		{
-			Result = OutputColor;
+			if (Success)
+				Volume = Result;
 		});
 }
 

@@ -54,6 +54,7 @@ public:
 
 		SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
 
+		SHADER_PARAMETER(uint32, VolumeSize)
 		SHADER_PARAMETER(FVector3f, Position)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, Density)
 		//SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FVector3f>, Normals)
@@ -110,11 +111,10 @@ IMPLEMENT_MATERIAL_SHADER_TYPE(, FDCVolumeGenerator, TEXT("/WorldGoblinShadersSh
 
 // !!! Avoid using FRHICommandListImmediate unless strictly necessary, as it disqualifies the pass from executing in parallel ???
 
-void FDCVolumeGeneratorInterface::DispatchRenderThread(/*FRHICommandListImmediate& RHICmdList, */FDCVolumeGeneratorDispatchParams Params, TFunction<void(FVector3f OutputColor)> AsyncCallback)
+void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatchParams Params, TFunction<void(bool Success, UDCVolumeResult* Result)> AsyncCallback)
 {
 	FRHICommandListImmediate& RHICmdList = GetImmediateCommandList_ForRenderCommand();
-	//FRHICommandList RHICmdList = GetCommandList
-
+	
 	FRDGBuilder GraphBuilder(RHICmdList);
 	{
 		SCOPE_CYCLE_COUNTER(STAT_DCVolumeGenerator_Execute);
@@ -144,6 +144,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(/*FRHICommandListImmediat
 
 			FDCVolumeGenerator::FParameters* PassParameters = GraphBuilder.AllocParameters<FDCVolumeGenerator::FParameters>();
 			
+			PassParameters->VolumeSize = Params.VolumeSize;
 			PassParameters->Position = Params.Position;
 
 			// This will be removed, but create a buffer for output values
@@ -175,8 +176,9 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(/*FRHICommandListImmediat
 				VolumeSize / NUM_THREADS_DCVolumeGenerator_Y,
 				VolumeSize / NUM_THREADS_DCVolumeGenerator_Z);
 
-			//auto GroupCount = AdjustedCount; 
-			auto GroupCount = FComputeShaderUtils::GetGroupCount(FIntVector(1, 1, 1), FComputeShaderUtils::kGolden2DGroupSize);
+			auto GroupCount = AdjustedCount; 
+			//auto GroupCount = FComputeShaderUtils::GetGroupCount(FIntVector(1, 1, 1), FComputeShaderUtils::kGolden2DGroupSize);
+
 
 			GraphBuilder.AddPass(
 				RDG_EVENT_NAME("ExecuteDCVolumeGenerator"),
@@ -213,18 +215,25 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(/*FRHICommandListImmediat
 
 			
 			FRHIGPUBufferReadback* GPUBufferReadback = new FRHIGPUBufferReadback(TEXT("ExecuteDCVolumeGeneratorOutput"));
-			AddEnqueueCopyPass(GraphBuilder, GPUBufferReadback, OutputBuffer, 0u); // Try removing 0 here?
+			AddEnqueueCopyPass(GraphBuilder, GPUBufferReadback, DensityBuffer, VolumeVoxels * sizeof(float)); // Try removing 0 here?
 
-			auto RunnerFunc = [GPUBufferReadback, GroupCount, AsyncCallback](auto&& RunnerFunc) -> void {
+			auto RunnerFunc = [GPUBufferReadback, GroupCount, VolumeVoxels, AsyncCallback](auto&& RunnerFunc) -> void {
 				if (GPUBufferReadback->IsReady()) {
 					
-					FVector4f* Buffer = (FVector4f*)GPUBufferReadback->Lock(1);
-					FVector3f OutVal = FVector3f(Buffer[0].X, Buffer[0].Y, Buffer[0].Z);
-					
+					uint32 data_size = VolumeVoxels * sizeof(float);
+
+					UDCVolumeResult* Res = NewObject<UDCVolumeResult>();
+
+					//FVector4f* Buffer = (FVector4f*)GPUBufferReadback->Lock(1);
+					float* Buffer = (float*)GPUBufferReadback->Lock(VolumeVoxels * sizeof(float));
+					//FVector3f OutVal = FVector3f(Buffer[0].X, Buffer[0].Y, Buffer[0].Z);
+					Res->Densities.Init(0.f, VolumeVoxels);
+					FMemory::Memcpy(Res->Densities.GetData(), Buffer, data_size);
+
 					GPUBufferReadback->Unlock();
 
-					AsyncTask(ENamedThreads::GameThread, [AsyncCallback, OutVal]() {
-						AsyncCallback(OutVal);
+					AsyncTask(ENamedThreads::GameThread, [AsyncCallback, Res]() {
+						AsyncCallback(true, Res);
 					});
 
 					delete GPUBufferReadback;
@@ -245,14 +254,14 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(/*FRHICommandListImmediat
 			#endif
 
 			// We exit here as we don't want to crash the game if the shader is not found or has an error.
-			AsyncCallback(FVector3f(0.f));
+			AsyncCallback(false, nullptr);
 		}
 	}
 
 	GraphBuilder.Execute();
 }
 
-void FDCVolumeGeneratorInterface::DispatchGameThread(FDCVolumeGeneratorDispatchParams Params, TFunction<void(FVector3f OutputVal)> AsyncCallback)
+void FDCVolumeGeneratorInterface::DispatchGameThread(FDCVolumeGeneratorDispatchParams Params, TFunction<void(bool Success, UDCVolumeResult* Result)> AsyncCallback)
 {
 	ENQUEUE_RENDER_COMMAND(SceneDrawCompletion)(
 		[Params, AsyncCallback](FRHICommandListImmediate& RHICmdList)
@@ -261,7 +270,7 @@ void FDCVolumeGeneratorInterface::DispatchGameThread(FDCVolumeGeneratorDispatchP
 		});
 }
 
-void FDCVolumeGeneratorInterface::Dispatch(FDCVolumeGeneratorDispatchParams Params, TFunction<void(FVector3f OutputColor)> AsyncCallback)
+void FDCVolumeGeneratorInterface::Dispatch(FDCVolumeGeneratorDispatchParams Params, TFunction<void(bool Success, UDCVolumeResult* Result)> AsyncCallback)
 {
 	if (IsInRenderingThread()) 
 	{
