@@ -11,7 +11,7 @@ public class WorldGoblinShaders: ModuleRules
 		
 		PrivateIncludePaths.AddRange(new string[] 
 		{
-			"Runtime/Renderer/Private",
+			//"Runtime/Renderer/Private",
 			"WorldGoblinShaders/Private"
 		});
 		if (Target.bBuildEditor == true)
@@ -43,12 +43,12 @@ public class WorldGoblinShaders: ModuleRules
 				}
 			);
 
-			CircularlyReferencedDependentModules.AddRange(
-				new string[] {
-					"UnrealEd",
-					"MaterialUtilities",
-				}
-			);
+			//CircularlyReferencedDependentModules.AddRange(
+			//	new string[] {
+			//		"UnrealEd",
+			//		"MaterialUtilities",
+			//	}
+			//);
 		}
 	} 
 

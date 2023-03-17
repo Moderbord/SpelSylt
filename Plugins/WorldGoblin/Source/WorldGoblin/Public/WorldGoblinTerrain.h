@@ -23,4 +23,25 @@ public:
 	// Called every frame
 	virtual void Tick(float DeltaTime) override;
 
+	UFUNCTION(BlueprintCallable)
+	void Regenerate();
+
+public:
+
+	/** Please add a variable description */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Generator")
+	TObjectPtr<UMaterialInterface> Generator;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	int32 VolumeSize = 32;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	float ChunkSize = 1000.f;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	FVector3f Result = FVector3f(0.f);
+
+protected:
+
+
 };

@@ -38,6 +38,7 @@ public class WorldGoblin : ModuleRules
 				"Engine",
 				"Slate",
 				"SlateCore",
+				"WorldGoblinShaders"
 				// ... add private dependencies that you statically link with here ...	
 			}
 			);

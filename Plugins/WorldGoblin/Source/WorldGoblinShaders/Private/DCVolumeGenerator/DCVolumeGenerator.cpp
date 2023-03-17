@@ -2,6 +2,7 @@
 #include "WorldGoblinShaders/Public/DCVolumeGenerator/DCVolumeGenerator.h"
 #include "PixelShaderUtils.h"
 #include "RenderCore/Public/RenderGraphUtils.h"
+#include "RenderingThread.h" //new
 #include "MeshPassProcessor.inl"
 #include "StaticMeshResources.h"
 #include "DynamicMeshBuilder.h"
@@ -52,6 +53,7 @@ public:
 		// SHADER_PARAMETER_STRUCT_REF(FMyCustomStruct, MyCustomStruct)
 
 		SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
+
 		SHADER_PARAMETER(FVector3f, Position)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, Density)
 		//SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FVector3f>, Normals)
@@ -108,9 +110,12 @@ IMPLEMENT_MATERIAL_SHADER_TYPE(, FDCVolumeGenerator, TEXT("/WorldGoblinShadersSh
 
 // !!! Avoid using FRHICommandListImmediate unless strictly necessary, as it disqualifies the pass from executing in parallel ???
 
-void FDCVolumeGeneratorInterface::DispatchRenderThread(FRHICommandListImmediate& RHICmdList, FDCVolumeGeneratorDispatchParams Params, TFunction<void(FVector3f OutputColor)> AsyncCallback) {
-	FRDGBuilder GraphBuilder(RHICmdList);
+void FDCVolumeGeneratorInterface::DispatchRenderThread(/*FRHICommandListImmediate& RHICmdList, */FDCVolumeGeneratorDispatchParams Params, TFunction<void(FVector3f OutputColor)> AsyncCallback)
+{
+	FRHICommandListImmediate& RHICmdList = GetImmediateCommandList_ForRenderCommand();
+	//FRHICommandList RHICmdList = GetCommandList
 
+	FRDGBuilder GraphBuilder(RHICmdList);
 	{
 		SCOPE_CYCLE_COUNTER(STAT_DCVolumeGenerator_Execute);
 		DECLARE_GPU_STAT(DCVolumeGenerator)
@@ -171,7 +176,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FRHICommandListImmediate&
 				VolumeSize / NUM_THREADS_DCVolumeGenerator_Z);
 
 			//auto GroupCount = AdjustedCount; 
-			auto GroupCount = FComputeShaderUtils::GetGroupCount(FIntVector(Params.X, Params.Y, Params.Z), FComputeShaderUtils::kGolden2DGroupSize);
+			auto GroupCount = FComputeShaderUtils::GetGroupCount(FIntVector(1, 1, 1), FComputeShaderUtils::kGolden2DGroupSize);
 
 			GraphBuilder.AddPass(
 				RDG_EVENT_NAME("ExecuteDCVolumeGenerator"),
@@ -245,4 +250,35 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FRHICommandListImmediate&
 	}
 
 	GraphBuilder.Execute();
+}
+
+void FDCVolumeGeneratorInterface::DispatchGameThread(FDCVolumeGeneratorDispatchParams Params, TFunction<void(FVector3f OutputVal)> AsyncCallback)
+{
+	ENQUEUE_RENDER_COMMAND(SceneDrawCompletion)(
+		[Params, AsyncCallback](FRHICommandListImmediate& RHICmdList)
+		{
+			DispatchRenderThread(Params, AsyncCallback);
+		});
+}
+
+void FDCVolumeGeneratorInterface::Dispatch(FDCVolumeGeneratorDispatchParams Params, TFunction<void(FVector3f OutputColor)> AsyncCallback)
+{
+	if (IsInRenderingThread()) 
+	{
+		DispatchRenderThread(Params, AsyncCallback);
+	}
+	else
+	{
+		DispatchGameThread(Params, AsyncCallback);
+	}
+}
+
+FDCVolumeGeneratorDispatchParams::FDCVolumeGeneratorDispatchParams(AActor* SceneContext, int32 VolumeSize, UMaterialInterface* Generator, FVector3f Position)
+{
+	this->VolumeSize = VolumeSize;
+	this->Position = Position;
+	this->MaterialRenderProxy = Generator->GetRenderProxy();
+	this->Scene = SceneContext->GetRootComponent()->GetScene()->GetRenderScene();
+	this->Random = FMath::Rand();
+	this->GameTime = SceneContext->GetWorld()->GetTimeSeconds();
 }

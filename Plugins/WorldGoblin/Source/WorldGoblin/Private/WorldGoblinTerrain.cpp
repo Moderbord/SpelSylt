@@ -2,12 +2,13 @@
 
 
 #include "WorldGoblinTerrain.h"
+#include "DCVolumeGenerator/DCVolumeGenerator.h"
 
 // Sets default values
 AWorldGoblinTerrain::AWorldGoblinTerrain()
 {
  	// Set this actor to call Tick() every frame.  You can turn this off to improve performance if you don't need it.
-	PrimaryActorTick.bCanEverTick = true;
+	PrimaryActorTick.bCanEverTick = false;
 
 }
 
@@ -23,5 +24,17 @@ void AWorldGoblinTerrain::Tick(float DeltaTime)
 {
 	Super::Tick(DeltaTime);
 
+}
+
+void AWorldGoblinTerrain::Regenerate()
+{
+	FVector3f location = FVector3f(GetActorLocation());
+
+	FDCVolumeGeneratorDispatchParams Params(this, 32, Generator, location);
+	FDCVolumeGeneratorInterface::Dispatch(Params, 
+		[this](FVector3f OutputColor) 
+		{
+			Result = OutputColor;
+		});
 }
 
