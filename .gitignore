@@ -80,6 +80,6 @@ DerivedDataCache/*
 Content/StarterContent/*
 
 # Plugin docs
-/Plugins/FMODStudio/Docs
+/Plugins/FMODStudio/
 Content/Scenes/Main/LV_Forest.umap
 
