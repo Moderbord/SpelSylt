@@ -1,0 +1,167 @@
+#include "/Engine/Public/Platform.ush"
+
+struct Quad
+{
+    int3 t0;
+    int3 t1;
+};
+
+uint VolumeSize;
+
+// Volume input
+Buffer<float> Density;
+
+// Tri output
+RWBuffer<int> Indices;
+AppendStructuredBuffer<Quad> Quads;
+
+static const int numCorners = 8;
+static const int numAxes = 3;
+static const int numEdges = 12;
+static const int numFarEdges = 3;
+static const int numNeighbours = 6;
+static const int numPoints = numCorners + numAxes;
+
+static uint3 corners[numCorners] =
+{
+    uint3(0, 0, 0),
+	uint3(0, 0, 1),
+	uint3(0, 1, 0),
+	uint3(0, 1, 1),
+	uint3(1, 0, 0),
+	uint3(1, 0, 1),
+	uint3(1, 1, 0),
+	uint3(1, 1, 1)
+};
+
+static int3 axes[numAxes] =
+{
+    int3(1, 0, 0),
+	int3(0, 1, 0),
+	int3(0, 0, 1)
+};
+
+static uint2 edges[numEdges] =
+{
+    uint2(0, 1),
+	uint2(0, 2),
+	uint2(0, 4),
+	uint2(1, 3),
+	uint2(1, 5),
+	uint2(2, 3),
+	uint2(2, 6),
+	uint2(3, 7),
+	uint2(4, 5),
+	uint2(4, 6),
+	uint2(5, 7),
+	uint2(6, 7)
+};
+
+static uint2 farEdges[numFarEdges] =
+{
+    uint2(3, 7),
+	uint2(5, 7),
+	uint2(6, 7)
+};
+
+static int3 neighbours[numNeighbours] =
+{
+    int3(0, 0, 1),
+	int3(0, 1, 0),
+	int3(0, 1, 1),
+	int3(1, 0, 0),
+	int3(1, 0, 1),
+	int3(1, 1, 0)
+};
+
+uint GetVoxelIndex(uint3 id)
+{
+    return ((id.z * (VolumeSize - 1)) + id.y) * (VolumeSize - 1) + id.x;
+}
+
+uint GetVolumeIndex(uint3 id)
+{
+    return ((id.z * VolumeSize) + id.y) * VolumeSize + id.x;
+}
+
+bool CheckEdge(uint3 id, uint range)
+{
+    return (id.x >= VolumeSize - range
+		|| id.y >= VolumeSize - range
+		|| id.z >= VolumeSize - range);
+}
+
+bool IsBorder(uint3 id)
+{
+    return (id.x * id.y * id.z == 0) || CheckEdge(id, 1);
+}
+
+[numthreads(THREADS_X, THREADS_Y, THREADS_Z)]
+void DCTriangleGenerator(
+	uint3 DispatchThreadId : SV_DispatchThreadID,
+	uint GroupIndex : SV_GroupIndex )
+{
+    
+    uint3 id = DispatchThreadId;
+
+    if (CheckEdge(id, 2))
+        return;
+
+    int v0 = Indices[GetVolumeIndex(id)];
+	
+    if (v0 < 0)
+        return;
+
+    bool inside[numCorners] = { false, false, false, false, false, false, false, false };
+
+    for (int ci = 0; ci < numCorners; ci++)
+        inside[ci] = (Density[GetVolumeIndex(id + corners[ci])] <= 0);
+
+    for (int ai = 0; ai < numFarEdges; ai++)
+    {
+        uint2 edge = farEdges[ai];
+
+        if (inside[edge.x] == inside[edge.y])
+            continue;
+
+        int v1, v2, v3;
+        int s1, s2, s3;
+		
+        if (ai == 0)
+        {
+            v1 = Indices[GetVoxelIndex(id + neighbours[0])];
+            v2 = Indices[GetVoxelIndex(id + neighbours[1])];
+            v3 = Indices[GetVoxelIndex(id + neighbours[2])];
+        }
+        else if (ai == 1)
+        {
+            v1 = Indices[GetVoxelIndex(id + neighbours[0])];
+            v2 = Indices[GetVoxelIndex(id + neighbours[3])];
+            v3 = Indices[GetVoxelIndex(id + neighbours[4])];
+        }
+        else
+        {
+            v1 = Indices[GetVoxelIndex(id + neighbours[1])];
+            v2 = Indices[GetVoxelIndex(id + neighbours[3])];
+            v3 = Indices[GetVoxelIndex(id + neighbours[5])];
+        }
+
+        if (v1 < 0 || v2 < 0 || v3 < 0)
+            continue;
+
+        if (inside[edge.x] == (ai == 1))
+        {
+            Quad q1;
+            q1.t0 = int3(v0, v1, v3);
+            q1.t1 = int3(v0, v3, v2);
+            Quads.Append(q1);
+        }
+        else
+        {
+            Quad q2;
+            q2.t0 = int3(v0, v3, v1);
+            q2.t1 = int3(v0, v2, v3);
+            Quads.Append(q2);
+        }
+    }
+}

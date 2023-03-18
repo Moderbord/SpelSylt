@@ -29,3 +29,11 @@
 #define NUM_THREADS_DCVolumeGenerator_X 8
 #define NUM_THREADS_DCVolumeGenerator_Y 8
 #define NUM_THREADS_DCVolumeGenerator_Z 1
+
+#define NUM_THREADS_DCVertexGenerator_X 8
+#define NUM_THREADS_DCVertexGenerator_Y 8
+#define NUM_THREADS_DCVertexGenerator_Z 1
+
+#define NUM_THREADS_DCTriangleGenerator_X 8
+#define NUM_THREADS_DCTriangleGenerator_Y 8
+#define NUM_THREADS_DCTriangleGenerator_Z 1

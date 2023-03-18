@@ -1,0 +1,263 @@
+#include "/Engine/Public/Platform.ush"
+
+uint VolumeSize;
+float VolumeScale;
+float MaxCornerDistance;
+float CenterBias;
+float ClampRange;
+float3 Position;
+
+// Volume input
+Buffer<float> Density;
+Buffer<float4> Normals;
+
+// Mesh output
+RWStructuredBuffer<float3> Vertices;
+RWBuffer<int> Indices;
+RWBuffer<float3> OutNormals;
+
+static const int numCorners = 8;
+static const int numAxes = 3;
+static const int numEdges = 12;
+static const int numFarEdges = 3;
+static const int numNeighbours = 6;
+static const int numPoints = numCorners + numAxes;
+
+static uint3 corners[numCorners] =
+{
+    uint3(0, 0, 0),
+	uint3(0, 0, 1),
+	uint3(0, 1, 0),
+	uint3(0, 1, 1),
+	uint3(1, 0, 0),
+	uint3(1, 0, 1),
+	uint3(1, 1, 0),
+	uint3(1, 1, 1)
+};
+
+static int3 axes[numAxes] =
+{
+    int3(1, 0, 0),
+	int3(0, 1, 0),
+	int3(0, 0, 1)
+};
+
+static uint2 edges[numEdges] =
+{
+    uint2(0, 1),
+	uint2(0, 2),
+	uint2(0, 4),
+	uint2(1, 3),
+	uint2(1, 5),
+	uint2(2, 3),
+	uint2(2, 6),
+	uint2(3, 7),
+	uint2(4, 5),
+	uint2(4, 6),
+	uint2(5, 7),
+	uint2(6, 7)
+};
+
+static uint2 farEdges[numFarEdges] =
+{
+    uint2(3, 7),
+	uint2(5, 7),
+	uint2(6, 7)
+};
+
+static int3 neighbours[numNeighbours] =
+{
+    int3(0, 0, 1),
+	int3(0, 1, 0),
+	int3(0, 1, 1),
+	int3(1, 0, 0),
+	int3(1, 0, 1),
+	int3(1, 1, 0)
+};
+
+uint GetVoxelIndex(uint3 id)
+{
+    return ((id.z * (VolumeSize - 1)) + id.y) * (VolumeSize - 1) + id.x;
+}
+
+uint GetVolumeIndex(uint3 id)
+{
+    return ((id.z * VolumeSize) + id.y) * VolumeSize + id.x;
+}
+
+bool CheckEdge(uint3 id, uint range)
+{
+    return (id.x >= VolumeSize - range
+		|| id.y >= VolumeSize - range
+		|| id.z >= VolumeSize - range);
+}
+
+bool IsBorder(uint3 id)
+{
+    return (id.x * id.y * id.z == 0) || CheckEdge(id, 1);
+}
+
+bool SolveMatrix(in float3x3 A, in float3 b, out float3 vertex)
+{
+    float det = determinant(A);
+
+    if (abs(det) <= 1e-12)
+    {
+        vertex = float3(0, 0, 0);
+        return false;
+    }
+
+    vertex = float3
+	(
+		determinant(float3x3(b, A[1], A[2])),
+		determinant(float3x3(A[0], b, A[2])),
+		determinant(float3x3(A[0], A[1], b))
+	) / det;
+
+    return !(any(isnan(vertex)) || any(isinf(vertex)));
+}
+
+bool SolveError(in int N, in float3 A[numPoints], in float b[numPoints], out float3 vertex)
+{
+    if (N == 3)
+    {
+        float3x3 mat = float3x3(A[0], A[1], A[2]);
+        float3 vec = float3(b[0], b[1], b[2]);
+        return SolveMatrix(mat, vec, vertex);
+    }
+
+    float3x3 At_A;
+    float3 At_b;
+
+	[unroll(3)]
+    for (int i = 0; i < 3; i++)
+    {
+		[unroll(3)]
+        for (int j = 0; j < 3; j++)
+        {
+            float sum = 0;
+
+            for (int k = 0; k < N; k++)
+                sum += A[k][i] * A[k][j];
+
+            At_A[i][j] = sum;
+        }
+    }
+
+	[unroll(3)]
+    for (int u = 0; u < 3; u++)
+    {
+        float sum = 0;
+
+        for (int v = 0; v < N; v++)
+            sum += A[v][u] * b[v];
+
+        At_b[u] = sum;
+    }
+
+    return SolveMatrix(At_A, At_b, vertex);
+}
+
+[numthreads(THREADS_X, THREADS_Y, THREADS_Z)]
+void DCVertexGenerator(
+	uint3 DispatchThreadId : SV_DispatchThreadID,
+	uint GroupIndex : SV_GroupIndex )
+{
+    
+    uint3 id = DispatchThreadId;
+    
+    if (CheckEdge(id, 1))
+        return;
+
+    uint index = GetVoxelIndex(id);
+    Indices[index] = -1;
+
+    bool inside[numCorners];
+    int numInside = 0;
+
+    for (int ci = 0; ci < numCorners; ci++)
+    {
+        inside[ci] = (Density[GetVolumeIndex(id + corners[ci])] <= 0);
+        if (inside[ci])
+            numInside++;
+    }
+
+    if (numInside == 0 || numInside == numCorners)
+        return;
+
+    bool crossingCorners[numCorners] = { false, false, false, false, false, false, false, false };
+
+    for (int e = 0; e < numEdges; e++)
+    {
+        if (inside[edges[e].x] != inside[edges[e].y])
+        {
+            crossingCorners[edges[e].x] = true;
+            crossingCorners[edges[e].y] = true;
+        }
+    }
+
+    float dists[numPoints];
+    float3 norms[numPoints];
+
+    float3 A[numPoints];
+    float b[numPoints];
+
+    int pointCount = 0;
+
+    for (int cj = 0; cj < numCorners; cj++)
+    {
+        uint3 n_pos = id + corners[cj];
+        float n_dist = Density[GetVolumeIndex(n_pos)];
+        float3 n_norm = Normals[GetVolumeIndex(n_pos)];
+
+        if (!crossingCorners[cj])
+            continue;
+
+        if (abs(n_dist) > MaxCornerDistance * VolumeScale)
+            continue;
+
+        float d = dot(n_norm, float3(n_pos)) - n_dist;
+        float3 n = n_norm;
+        dists[pointCount] = d;
+        norms[pointCount] = n;
+        pointCount++;
+    }
+
+    float3 voxelCenter = float3(id) + float3(0.5, 0.5, 0.5);
+
+    for (int ai = 0; ai < numAxes; ai++)
+    {
+        float3 n2 = CenterBias / VolumeScale * float3(axes[ai]); // Apply less bias to larger areas
+        float d2 = dot(n2, voxelCenter);
+        dists[pointCount] = d2;
+        norms[pointCount] = n2;
+        pointCount++;
+    }
+
+    float3 avgNormal = float3(0, 0, 0);
+    for (int pi = 0; pi < pointCount; pi++)
+    {
+        float3 norm = norms[pi];
+        avgNormal += norm;
+        A[pi] = norm;
+        b[pi] = dists[pi];
+    }
+
+    avgNormal /= float(pointCount);
+
+    float3 vertex;
+    if (SolveError(pointCount, A, b, vertex))
+    {
+        float3 r = float3(ClampRange, ClampRange, ClampRange);
+        vertex = clamp(vertex, float3(id) - r, float3(id) + r);
+    }
+    else
+        vertex = voxelCenter;
+
+    vertex *= VolumeScale;
+
+    int idx = Vertices.IncrementCounter();
+    Vertices[idx] = vertex;
+    OutNormals[idx] = avgNormal;
+    Indices[index] = idx;
+}
