@@ -33,6 +33,9 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	TArray<float> Densities;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	TArray<FVector4f> Normals;
 };
 
 // This is a public interface that we define so outside code can invoke our compute shader.

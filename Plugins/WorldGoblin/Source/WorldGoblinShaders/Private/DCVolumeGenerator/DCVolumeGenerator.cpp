@@ -57,8 +57,7 @@ public:
 		SHADER_PARAMETER(uint32, VolumeSize)
 		SHADER_PARAMETER(FVector3f, Position)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, Density)
-		//SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FVector3f>, Normals)
-		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float4>, OutputColor)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector4f>, Normals)
 		
 
 	END_SHADER_PARAMETER_STRUCT()
@@ -114,7 +113,7 @@ IMPLEMENT_MATERIAL_SHADER_TYPE(, FDCVolumeGenerator, TEXT("/WorldGoblinShadersSh
 void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatchParams Params, TFunction<void(bool Success, UDCVolumeResult* Result)> AsyncCallback)
 {
 	FRHICommandListImmediate& RHICmdList = GetImmediateCommandList_ForRenderCommand();
-	
+
 	FRDGBuilder GraphBuilder(RHICmdList);
 	{
 		SCOPE_CYCLE_COUNTER(STAT_DCVolumeGenerator_Execute);
@@ -147,12 +146,12 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			PassParameters->VolumeSize = Params.VolumeSize;
 			PassParameters->Position = Params.Position;
 
-			// This will be removed, but create a buffer for output values
-			FRDGBufferRef OutputBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector4f), 1),
-				TEXT("OutputBuffer"));
+			// Create a buffer for normals
+			FRDGBufferRef NormalsBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector4f), VolumeVoxels),
+				TEXT("NormalsBuffer"));
 
-			PassParameters->OutputColor = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(OutputBuffer, PF_A32B32G32R32F));
+			PassParameters->Normals = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(NormalsBuffer, PF_A32B32G32R32F));
 
 			// Create a buffer for density values
 			FRDGBufferRef DensityBuffer = GraphBuilder.CreateBuffer(
@@ -212,31 +211,38 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 				RHICmdList.DispatchComputeShader(GroupCount.X, GroupCount.Y, GroupCount.Z);
 				
 			});
-
 			
-			FRHIGPUBufferReadback* GPUBufferReadback = new FRHIGPUBufferReadback(TEXT("ExecuteDCVolumeGeneratorOutput"));
-			AddEnqueueCopyPass(GraphBuilder, GPUBufferReadback, DensityBuffer, VolumeVoxels * sizeof(float)); // Try removing 0 here?
+			FRHIGPUBufferReadback* DensityReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeDensityExtraction"));
+			AddEnqueueCopyPass(GraphBuilder, DensityReadback, DensityBuffer, 0u); // Try removing 0 here?
 
-			auto RunnerFunc = [GPUBufferReadback, GroupCount, VolumeVoxels, AsyncCallback](auto&& RunnerFunc) -> void {
-				if (GPUBufferReadback->IsReady()) {
+			FRHIGPUBufferReadback* NormalsReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeNormalsExtraction"));
+			AddEnqueueCopyPass(GraphBuilder, NormalsReadback, NormalsBuffer, 0u); // Try removing 0 here?
+
+			auto RunnerFunc = [DensityReadback, NormalsReadback, GroupCount, VolumeVoxels, AsyncCallback](auto&& RunnerFunc) -> void {
+				if (DensityReadback->IsReady() && NormalsReadback->IsReady()) {
 					
-					uint32 data_size = VolumeVoxels * sizeof(float);
 
 					UDCVolumeResult* Res = NewObject<UDCVolumeResult>();
 
-					//FVector4f* Buffer = (FVector4f*)GPUBufferReadback->Lock(1);
-					float* Buffer = (float*)GPUBufferReadback->Lock(VolumeVoxels * sizeof(float));
-					//FVector3f OutVal = FVector3f(Buffer[0].X, Buffer[0].Y, Buffer[0].Z);
+					uint32 density_data_size = VolumeVoxels * sizeof(float);
+					float* density_buffer = (float*)DensityReadback->Lock(density_data_size);
 					Res->Densities.Init(0.f, VolumeVoxels);
-					FMemory::Memcpy(Res->Densities.GetData(), Buffer, data_size);
+					FMemory::Memcpy(Res->Densities.GetData(), density_buffer, density_data_size);
+					DensityReadback->Unlock();
 
-					GPUBufferReadback->Unlock();
+					uint32 normals_data_size = VolumeVoxels * sizeof(FVector4f);
+					FVector4f* normals_buffer = (FVector4f*)NormalsReadback->Lock(normals_data_size);
+					Res->Normals.Init(FVector4f(0.f), VolumeVoxels);
+					FMemory::Memcpy(Res->Normals.GetData(), normals_buffer, normals_data_size);
+					NormalsReadback->Unlock();
 
 					AsyncTask(ENamedThreads::GameThread, [AsyncCallback, Res]() {
 						AsyncCallback(true, Res);
 					});
 
-					delete GPUBufferReadback;
+					delete DensityReadback;
+					delete NormalsReadback;
+
 				} else {
 					AsyncTask(ENamedThreads::ActualRenderingThread, [RunnerFunc]() {
 						RunnerFunc(RunnerFunc);
