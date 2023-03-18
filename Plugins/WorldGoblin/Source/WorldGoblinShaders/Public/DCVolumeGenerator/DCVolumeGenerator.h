@@ -5,6 +5,12 @@
 
 #include "DCVolumeGenerator.generated.h"
 
+struct WORLDGOBLINSHADERS_API FQuad
+{
+	FIntVector3 a;
+	FIntVector3 b;
+};
+
 struct WORLDGOBLINSHADERS_API FDCVolumeGeneratorDispatchParams
 {
 
@@ -34,10 +40,7 @@ class WORLDGOBLINSHADERS_API UDCVolumeResult : public UObject
 public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	TArray<float> Densities;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	TArray<FVector4f> Normals;
+	TArray<FVector4f> SDF;
 };
 
 // This is a public interface that we define so outside code can invoke our compute shader.

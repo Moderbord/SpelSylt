@@ -3,8 +3,7 @@
 
 uint VolumeSize;
 float3 Position;
-RWBuffer<float> Density;
-RWBuffer<float4> Normals;
+RWBuffer<float4> SDF;
 
 uint GetVolumeIndex(uint3 id)
 {
@@ -47,8 +46,7 @@ void DCVolumeGenerator(
 	
     uint idx = GetVolumeIndex(DispatchThreadId);
 	
-    Density[idx] = num1;
-    Normals[idx] = float4(1, 2, 3, 4);
+    SDF[idx] = float4(1, 2, 3, num1);
 
 	// You can also access custom output nodes via their respective names
 	// e.g. GetMyCustomMaterialOutput0(MaterialParameters)

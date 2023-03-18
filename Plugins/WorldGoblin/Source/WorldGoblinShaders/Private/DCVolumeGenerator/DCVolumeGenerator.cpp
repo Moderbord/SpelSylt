@@ -57,8 +57,7 @@ public:
 		SHADER_PARAMETER(uint32, VolumeSize)
 		SHADER_PARAMETER(float, VolumeScale)
 		SHADER_PARAMETER(FVector3f, Position)
-		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float>, Density)
-		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector4f>, Normals)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector4f>, SDF)
 		
 
 	END_SHADER_PARAMETER_STRUCT()
@@ -118,8 +117,7 @@ public:
 		SHADER_PARAMETER(float, CenterBias)
 		SHADER_PARAMETER(float, ClampRange)
 		SHADER_PARAMETER(FVector3f, Position)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, Density)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<FVector4f>, Normals)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float4>, SDF)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<int>, Indices)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float3>, Vertices)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float3>, OutNormals)
@@ -168,7 +166,9 @@ public:
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER(uint32, VolumeSize)
 		SHADER_PARAMETER(FVector3f, Position)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float>, Density)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float4>, SDF)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<int>, Indices)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FQuad>, Quads)
 	END_SHADER_PARAMETER_STRUCT()
 
 public:
@@ -219,11 +219,11 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 
 		typename FDCVolumeGenerator::FPermutationDomain VolumePermutationVector;
 		typename FDCVertexGenerator::FPermutationDomain VertexPermutationVector;
-		//typename FDCTriangleGenerator::FPermutationDomain TrianglePermutationVector;
+		typename FDCTriangleGenerator::FPermutationDomain TrianglePermutationVector;
 		
 		TShaderRef<FDCVolumeGenerator> ComputeShader = MaterialResource->GetShader<FDCVolumeGenerator>(&FLocalVertexFactory::StaticType, VolumePermutationVector, false);
 		TShaderMapRef<FDCVertexGenerator> VertexGenerator(GetGlobalShaderMap(GMaxRHIFeatureLevel), VertexPermutationVector);
-		//TShaderMapRef<FDCTriangleGenerator> TriangleGenerator(GetGlobalShaderMap(GMaxRHIFeatureLevel), TrianglePermutationVector);
+		TShaderMapRef<FDCTriangleGenerator> TriangleGenerator(GetGlobalShaderMap(GMaxRHIFeatureLevel), TrianglePermutationVector);
 
 		bool isGeneratorValid = ComputeShader.IsValid();
 		bool isVertexGenValid = VertexGenerator.IsValid();
@@ -234,23 +234,15 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 
 			FDCVolumeGenerator::FParameters* VolumePassParameters = GraphBuilder.AllocParameters<FDCVolumeGenerator::FParameters>();
 			FDCVertexGenerator::FParameters* VertexPassParameters = GraphBuilder.AllocParameters<FDCVertexGenerator::FParameters>();
-			//FDCTriangleGenerator::FParameters* TrianglePassParameters = GraphBuilder.AllocParameters<FDCTriangleGenerator::FParameters>();
+			FDCTriangleGenerator::FParameters* TrianglePassParameters = GraphBuilder.AllocParameters<FDCTriangleGenerator::FParameters>();
 
-			// Create a buffer for normals
-			FRDGBufferRef NormalsBuffer = GraphBuilder.CreateBuffer(
+			// Create a buffer for the SDF
+			FRDGBufferRef SDFBuffer = GraphBuilder.CreateBuffer(
 				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector4f), NumVoxels),
-				TEXT("NormalsBuffer"));
+				TEXT("SDFBuffer"));
 
-			auto NormalsBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(NormalsBuffer, PF_A32B32G32R32F));
-			auto NormalsBufferSRV = GraphBuilder.CreateSRV(FRDGBufferSRVDesc(NormalsBuffer, PF_A32B32G32R32F));
-
-			// Create a buffer for density values
-			FRDGBufferRef DensityBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(float), NumVoxels),
-				TEXT("DensityBuffer"));
-
-			auto DensityBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(DensityBuffer, PF_R32_SINT));
-			auto DensityBufferSRV = GraphBuilder.CreateSRV(FRDGBufferSRVDesc(DensityBuffer, PF_R32_SINT));
+			auto SDFBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(SDFBuffer, PF_A32B32G32R32F));
+			auto SDFBufferSRV = GraphBuilder.CreateSRV(FRDGBufferSRVDesc(SDFBuffer, PF_A32B32G32R32F));
 
 			// Create a buffer for vertices
 			FRDGBufferRef VertexBuffer = GraphBuilder.CreateBuffer(
@@ -265,6 +257,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 				TEXT("IndexBuffer"));
 
 			auto IndexBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(IndexBuffer, PF_R32_SINT));
+			auto IndexBufferSRV = GraphBuilder.CreateSRV(FRDGBufferSRVDesc(IndexBuffer, PF_R32_SINT));
 
 			// Create a buffer for output normals
 			FRDGBufferRef OutNormalsBuffer = GraphBuilder.CreateBuffer(
@@ -272,6 +265,13 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 				TEXT("NormalsBuffer"));
 
 			auto OutNormalsBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(OutNormalsBuffer, PF_A32B32G32R32F));
+
+			// Create a buffer for quad
+			FRDGBufferRef QuadsBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateBufferDesc(sizeof(FQuad), NumVoxels),
+				TEXT("QuadsBuffer"));
+
+			auto QuadBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(QuadsBuffer, PF_R32_SINT));
 			
 			// Create a view uniform buffer for the generator material and fill it with whatever is necessary
 			FViewUniformShaderParameters ViewUniformShaderParameters;
@@ -281,14 +281,12 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			ViewUniformShaderParameters.SVPositionToTranslatedWorld = FMatrix44f::Identity;
 
 			auto ViewUniformBuffer = TUniformBufferRef<FViewUniformShaderParameters>::CreateUniformBufferImmediate(ViewUniformShaderParameters, UniformBuffer_SingleFrame);
-
 			
 			VolumePassParameters->View = ViewUniformBuffer;
 			VolumePassParameters->VolumeSize = Params.VolumeSize;
 			VolumePassParameters->VolumeScale = Params.VolumeScale;
 			VolumePassParameters->Position = Params.Position;
-			VolumePassParameters->Normals = NormalsBufferUAV;
-			VolumePassParameters->Density = DensityBufferUAV;
+			VolumePassParameters->SDF = SDFBufferUAV;
 
 			VertexPassParameters->VolumeSize = Params.VolumeSize;
 			VertexPassParameters->VolumeScale = Params.VolumeScale;
@@ -296,17 +294,15 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			VertexPassParameters->CenterBias = Params.CenterBias;
 			VertexPassParameters->ClampRange = Params.ClampRange;
 			VertexPassParameters->Position = Params.Position;
-			VertexPassParameters->Normals = NormalsBufferSRV;
-			VertexPassParameters->Density = DensityBufferSRV;
+			VertexPassParameters->SDF = SDFBufferSRV;
 			VertexPassParameters->Vertices = VertexBufferUAV;
 			VertexPassParameters->Indices = IndexBufferUAV;
 			VertexPassParameters->OutNormals = OutNormalsBufferUAV;
 
-			/*TrianglePassParameters->VolumeSize = Params.VolumeSize;
-			TrianglePassParameters->Density = DensityBufferUAV;
-			TrianglePassParameters->Indices = IndexBufferUAV;
-			TrianglePassParameters->Quads = QuadBufferUAV;*/
-
+			TrianglePassParameters->VolumeSize = Params.VolumeSize;
+			TrianglePassParameters->SDF = SDFBufferSRV;
+			TrianglePassParameters->Indices = IndexBufferSRV;
+			TrianglePassParameters->Quads = QuadBufferUAV;
 
 			auto GroupCount = FIntVector(
 				VolumeSize / NUM_THREADS_DCVolumeGenerator_X,
@@ -356,56 +352,28 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 					FComputeShaderUtils::Dispatch(RHICmdList, VertexGenerator, *VertexPassParameters, GroupCount);
 				});*/
 			
-			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DC Vertex Generation"), VertexGenerator, VertexPassParameters, GroupCount);
+			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DC Vertex Generation"), ERDGPassFlags::AsyncCompute, VertexGenerator, VertexPassParameters, GroupCount);
+			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DC Triangle Generation"), ERDGPassFlags::AsyncCompute, TriangleGenerator, TrianglePassParameters, GroupCount);
 
+			FRHIGPUBufferReadback* SDFReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeDensityExtraction"));
+			AddEnqueueCopyPass(GraphBuilder, SDFReadback, SDFBuffer, 0u); // Try removing 0 here?
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-			FRHIGPUBufferReadback* DensityReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeDensityExtraction"));
-			AddEnqueueCopyPass(GraphBuilder, DensityReadback, DensityBuffer, 0u); // Try removing 0 here?
-
-			FRHIGPUBufferReadback* NormalsReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeNormalsExtraction"));
-			AddEnqueueCopyPass(GraphBuilder, NormalsReadback, NormalsBuffer, 0u); // Try removing 0 here?
-
-			auto RunnerFunc = [DensityReadback, NormalsReadback, GroupCount, NumVoxels, AsyncCallback](auto&& RunnerFunc) -> void {
-				if (DensityReadback->IsReady() && NormalsReadback->IsReady()) {
+			auto RunnerFunc = [SDFReadback, GroupCount, NumVoxels, AsyncCallback](auto&& RunnerFunc) -> void {
+				if (SDFReadback->IsReady()) {
 					
-
 					UDCVolumeResult* Res = NewObject<UDCVolumeResult>();
 
-					uint32 density_data_size = NumVoxels * sizeof(float);
-					float* density_buffer = (float*)DensityReadback->Lock(density_data_size);
-					Res->Densities.Init(0.f, NumVoxels);
-					FMemory::Memcpy(Res->Densities.GetData(), density_buffer, density_data_size);
-					DensityReadback->Unlock();
-
-					uint32 normals_data_size = NumVoxels * sizeof(FVector4f);
-					FVector4f* normals_buffer = (FVector4f*)NormalsReadback->Lock(normals_data_size);
-					Res->Normals.Init(FVector4f(0.f), NumVoxels);
-					FMemory::Memcpy(Res->Normals.GetData(), normals_buffer, normals_data_size);
-					NormalsReadback->Unlock();
+					uint32 sdf_data_size = NumVoxels * sizeof(FVector4f);
+					FVector4f* sdf_buffer = (FVector4f*)SDFReadback->Lock(sdf_data_size);
+					Res->SDF.Init(FVector3f(0.f), NumVoxels);
+					FMemory::Memcpy(Res->SDF.GetData(), sdf_buffer, sdf_data_size);
+					SDFReadback->Unlock();
 
 					AsyncTask(ENamedThreads::GameThread, [AsyncCallback, Res]() {
 						AsyncCallback(true, Res);
 					});
 
-					delete DensityReadback;
-					delete NormalsReadback;
+					delete SDFReadback;
 
 				} else {
 					AsyncTask(ENamedThreads::ActualRenderingThread, [RunnerFunc]() {

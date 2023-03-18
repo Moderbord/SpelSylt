@@ -9,10 +9,10 @@ struct Quad
 uint VolumeSize;
 
 // Volume input
-Buffer<float> Density;
+Buffer<float4> SDF;
 
 // Tri output
-RWBuffer<int> Indices;
+Buffer<int> Indices;
 AppendStructuredBuffer<Quad> Quads;
 
 static const int numCorners = 8;
@@ -115,7 +115,7 @@ void DCTriangleGenerator(
     bool inside[numCorners] = { false, false, false, false, false, false, false, false };
 
     for (int ci = 0; ci < numCorners; ci++)
-        inside[ci] = (Density[GetVolumeIndex(id + corners[ci])] <= 0);
+        inside[ci] = (SDF[GetVolumeIndex(id + corners[ci])].w <= 0);
 
     for (int ai = 0; ai < numFarEdges; ai++)
     {
