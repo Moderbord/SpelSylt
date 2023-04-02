@@ -11,9 +11,10 @@ float3 Position;
 Buffer<float4> SDF;
 
 // Mesh output
-RWStructuredBuffer<float3> Vertices;
+RWBuffer<uint> VertexCount;
 RWBuffer<int> Indices;
-RWBuffer<float3> OutNormals;
+RWBuffer<float3> Vertices;
+RWBuffer<float3> Normals;
 
 static const int numCorners = 8;
 static const int numAxes = 3;
@@ -255,8 +256,12 @@ void DCVertexGenerator(
 
     vertex *= VolumeScale;
 
-    int idx = Vertices.IncrementCounter();
+    uint idx = VertexCount[0];
+    
     Vertices[idx] = vertex;
-    OutNormals[idx] = avgNormal;
-    Indices[index] = idx;
+    Normals[idx] = avgNormal;
+    Indices[index] = (int)idx;
+    
+    InterlockedAdd(VertexCount[0], 1);
+    
 }

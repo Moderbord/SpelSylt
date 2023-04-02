@@ -10,10 +10,11 @@ uint VolumeSize;
 
 // Volume input
 Buffer<float4> SDF;
+Buffer<int> Indices;
 
 // Tri output
-Buffer<int> Indices;
-AppendStructuredBuffer<Quad> Quads;
+RWBuffer<uint> QuadCount;
+RWStructuredBuffer<Quad> Quads;
 
 static const int numCorners = 8;
 static const int numAxes = 3;
@@ -149,19 +150,23 @@ void DCTriangleGenerator(
         if (v1 < 0 || v2 < 0 || v3 < 0)
             continue;
 
-        if (inside[edge.x] == (ai == 1))
-        {
-            Quad q1;
-            q1.t0 = int3(v0, v1, v3);
-            q1.t1 = int3(v0, v3, v2);
-            Quads.Append(q1);
-        }
-        else
-        {
-            Quad q2;
-            q2.t0 = int3(v0, v3, v1);
-            q2.t1 = int3(v0, v2, v3);
-            Quads.Append(q2);
-        }
+        //uint idx = QuadCount[0];
+        
+        //if (inside[edge.x] == (ai == 1))
+        //{
+        //    Quad q1;
+        //    q1.t0 = int3(v0, v1, v3);
+        //    q1.t1 = int3(v0, v3, v2);
+        //    Quads[idx] = q1;
+        //}
+        //else
+        //{
+        //    Quad q2;
+        //    q2.t0 = int3(v0, v3, v1);
+        //    q2.t1 = int3(v0, v2, v3);
+        //    Quads[idx] = q2;
+        //}
+        
+        //InterlockedAdd(QuadCount[0], 1);
     }
 }

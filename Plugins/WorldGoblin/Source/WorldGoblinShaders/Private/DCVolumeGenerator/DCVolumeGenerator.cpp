@@ -117,10 +117,11 @@ public:
 		SHADER_PARAMETER(float, CenterBias)
 		SHADER_PARAMETER(float, ClampRange)
 		SHADER_PARAMETER(FVector3f, Position)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float4>, SDF)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<FVector4f>, SDF)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint32>, VertexCount)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<int>, Indices)
-		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float3>, Vertices)
-		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<float3>, OutNormals)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector3f>, Vertices)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector3f>, Normals)
 	END_SHADER_PARAMETER_STRUCT()
 
 public:
@@ -166,8 +167,9 @@ public:
 	BEGIN_SHADER_PARAMETER_STRUCT(FParameters, )
 		SHADER_PARAMETER(uint32, VolumeSize)
 		SHADER_PARAMETER(FVector3f, Position)
-		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<float4>, SDF)
+		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<FVector4f>, SDF)
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<int>, Indices)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint32>, QuadCount)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FQuad>, Quads)
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -227,7 +229,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 
 		bool isGeneratorValid = ComputeShader.IsValid();
 		bool isVertexGenValid = VertexGenerator.IsValid();
-		bool isTriangleGenValid = true; // TriangleGenerator.IsValid();
+		bool isTriangleGenValid = TriangleGenerator.IsValid();
 
 		if (isGeneratorValid && isVertexGenValid && isTriangleGenValid) 
 		{
@@ -241,15 +243,22 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector4f), NumVoxels),
 				TEXT("SDFBuffer"));
 
-			auto SDFBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(SDFBuffer, PF_A32B32G32R32F));
+			auto SDFBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(SDFBuffer, PF_A32B32G32R32F)); // PF_A32B32G32R32F
 			auto SDFBufferSRV = GraphBuilder.CreateSRV(FRDGBufferSRVDesc(SDFBuffer, PF_A32B32G32R32F));
+
+			// Create a counter buffer for vertices
+			FRDGBufferRef VertexCountBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
+				TEXT("VertexCounterBuffer"));
+
+			auto VertexCountBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(VertexCountBuffer, PF_R32_UINT));
 
 			// Create a buffer for vertices
 			FRDGBufferRef VertexBuffer = GraphBuilder.CreateBuffer(
 				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector3f), NumVoxels),
 				TEXT("VertexBuffer"));
 
-			auto VertexBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(VertexBuffer, PF_R32G32B32_SINT));
+			auto VertexBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(VertexBuffer, PF_R32_FLOAT));
 
 			// Create a buffer for indices
 			FRDGBufferRef IndexBuffer = GraphBuilder.CreateBuffer(
@@ -260,11 +269,18 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			auto IndexBufferSRV = GraphBuilder.CreateSRV(FRDGBufferSRVDesc(IndexBuffer, PF_R32_SINT));
 
 			// Create a buffer for output normals
-			FRDGBufferRef OutNormalsBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector4f), NumVoxels),
+			FRDGBufferRef NormalsBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector3f), NumVoxels),
 				TEXT("NormalsBuffer"));
 
-			auto OutNormalsBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(OutNormalsBuffer, PF_A32B32G32R32F));
+			auto NormalsBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(NormalsBuffer, PF_R32_FLOAT));
+
+			// Create a counter buffer for quadrilaterals
+			FRDGBufferRef QuadCounterBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
+				TEXT("QuadCounterBuffer"));
+
+			auto QuadCountBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(QuadCounterBuffer, PF_R32_UINT));
 
 			// Create a buffer for quad
 			FRDGBufferRef QuadsBuffer = GraphBuilder.CreateBuffer(
@@ -295,19 +311,25 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			VertexPassParameters->ClampRange = Params.ClampRange;
 			VertexPassParameters->Position = Params.Position;
 			VertexPassParameters->SDF = SDFBufferSRV;
+			VertexPassParameters->VertexCount = VertexCountBufferUAV;
 			VertexPassParameters->Vertices = VertexBufferUAV;
 			VertexPassParameters->Indices = IndexBufferUAV;
-			VertexPassParameters->OutNormals = OutNormalsBufferUAV;
+			VertexPassParameters->Normals = NormalsBufferUAV;
 
 			TrianglePassParameters->VolumeSize = Params.VolumeSize;
 			TrianglePassParameters->SDF = SDFBufferSRV;
 			TrianglePassParameters->Indices = IndexBufferSRV;
+			TrianglePassParameters->QuadCount = QuadCountBufferUAV;
 			TrianglePassParameters->Quads = QuadBufferUAV;
 
 			auto GroupCount = FIntVector(
 				VolumeSize / NUM_THREADS_DCVolumeGenerator_X,
 				VolumeSize / NUM_THREADS_DCVolumeGenerator_Y,
 				VolumeSize / NUM_THREADS_DCVolumeGenerator_Z);
+
+			FRDGUploadData<uint32> ZeroInit(GraphBuilder, 1);
+			ZeroInit[0] = 0u;
+			GraphBuilder.QueueBufferUpload(VertexCountBuffer, ZeroInit);
 
 			/* Volume generation pass */
 			GraphBuilder.AddPass(
@@ -342,37 +364,46 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 				RHICmdList.DispatchComputeShader(GroupCount.X, GroupCount.Y, GroupCount.Z);
 				
 			});
-
-			/*GraphBuilder.AddPass(
-				RDG_EVENT_NAME("DC Vertex Generation"),
-				VertexPassParameters,
-				ERDGPassFlags::AsyncCompute,
-				[&VertexPassParameters, VertexGenerator, GroupCount](FRHIComputeCommandList& RHICmdList)
-				{
-					FComputeShaderUtils::Dispatch(RHICmdList, VertexGenerator, *VertexPassParameters, GroupCount);
-				});*/
 			
 			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DC Vertex Generation"), ERDGPassFlags::AsyncCompute, VertexGenerator, VertexPassParameters, GroupCount);
 			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("DC Triangle Generation"), ERDGPassFlags::AsyncCompute, TriangleGenerator, TrianglePassParameters, GroupCount);
 
+			FRHIGPUBufferReadback* VertexCountReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeVertexCountReadback"));
+			AddEnqueueCopyPass(GraphBuilder, VertexCountReadback, VertexCountBuffer, 0u);
+			
 			FRHIGPUBufferReadback* SDFReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeDensityExtraction"));
-			AddEnqueueCopyPass(GraphBuilder, SDFReadback, SDFBuffer, 0u); // Try removing 0 here?
+			AddEnqueueCopyPass(GraphBuilder, SDFReadback, SDFBuffer, 0u);
 
-			auto RunnerFunc = [SDFReadback, GroupCount, NumVoxels, AsyncCallback](auto&& RunnerFunc) -> void {
-				if (SDFReadback->IsReady()) {
+
+			//
+			//FRHIGPUBufferReadback* TriangleReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeTriangleReadback"));
+			//AddEnqueueCopyPass(GraphBuilder, TriangleReadback, QuadsBuffer, 0u);
+			//
+			//FRHIGPUBufferReadback* NormalsReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeNormalReadback"));
+			//AddEnqueueCopyPass(GraphBuilder, NormalsReadback, OutNormalsBuffer, 0u);
+
+			auto RunnerFunc = [SDFReadback, VertexCountReadback, GroupCount, NumVoxels, AsyncCallback](auto&& RunnerFunc) -> void {
+				if (SDFReadback->IsReady() && VertexCountReadback->IsReady())
+				{
 					
 					UDCVolumeResult* Res = NewObject<UDCVolumeResult>();
 
-					uint32 sdf_data_size = NumVoxels * sizeof(FVector4f);
-					FVector4f* sdf_buffer = (FVector4f*)SDFReadback->Lock(sdf_data_size);
+					uint32 atomicCounterSize = 1 * sizeof(uint32);
+					uint32* vertexCountBuffer = (uint32*)VertexCountReadback->Lock(atomicCounterSize);
+					Res->VertexCount = (int32)vertexCountBuffer[0];
+					VertexCountReadback->Unlock();
+
+					uint32 fieldDataSize = NumVoxels * sizeof(FVector4f);
+					FVector4f* fieldBuffer = (FVector4f*)SDFReadback->Lock(fieldDataSize);
 					Res->SDF.Init(FVector3f(0.f), NumVoxels);
-					FMemory::Memcpy(Res->SDF.GetData(), sdf_buffer, sdf_data_size);
+					FMemory::Memcpy(Res->SDF.GetData(), fieldBuffer, fieldDataSize);
 					SDFReadback->Unlock();
 
 					AsyncTask(ENamedThreads::GameThread, [AsyncCallback, Res]() {
 						AsyncCallback(true, Res);
 					});
 
+					delete VertexCountReadback;
 					delete SDFReadback;
 
 				} else {

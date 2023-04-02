@@ -41,6 +41,9 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	TArray<FVector4f> SDF;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int32 VertexCount = 0;
 };
 
 // This is a public interface that we define so outside code can invoke our compute shader.
