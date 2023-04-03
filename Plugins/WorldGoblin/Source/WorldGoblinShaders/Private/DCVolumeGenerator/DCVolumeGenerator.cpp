@@ -393,7 +393,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 
 			// Create a buffer for quad
 			FRDGBufferRef QuadsBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateStructuredDesc(sizeof(FQuad), NumIndices * 3),
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(FQuad), NumIndices),
 				TEXT("QuadsBuffer"));
 
 			auto QuadBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(QuadsBuffer));
@@ -481,8 +481,8 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			FRHIGPUBufferReadback* VertexCountReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeVertexCountReadback"));
 			AddEnqueueCopyPass(GraphBuilder, VertexCountReadback, VertexCountBuffer, 0u);
 
-			FRHIGPUBufferReadback* QuadCountReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeQuadCountReadback"));
-			AddEnqueueCopyPass(GraphBuilder, QuadCountReadback, QuadCountBuffer, 0u);
+			FRHIGPUBufferReadback* TriCountReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeQuadCountReadback"));
+			AddEnqueueCopyPass(GraphBuilder, TriCountReadback, QuadCountBuffer, 0u);
 
 			FRHIGPUBufferReadback* VertexReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeTriangleReadback"));
 			AddEnqueueCopyPass(GraphBuilder, VertexReadback, VertexBuffer, 0u);
@@ -490,18 +490,18 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			FRHIGPUBufferReadback* NormalsReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeNormalReadback"));
 			AddEnqueueCopyPass(GraphBuilder, NormalsReadback, NormalsBuffer, 0u);
 
-			FRHIGPUBufferReadback* TrianglesReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeIndexReadback"));
-			AddEnqueueCopyPass(GraphBuilder, TrianglesReadback, IndexBuffer, 0u);
+			FRHIGPUBufferReadback* QuadsReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeIndexReadback"));
+			AddEnqueueCopyPass(GraphBuilder, QuadsReadback, QuadsBuffer, 0u);
 
 			UDCVolumeResult* Res = NewObject<UDCVolumeResult>();
 
 			ReadbackStreamPool* Pool = new ReadbackStreamPool();
 
 			Pool->Push(new ReadbackStreamSingle<int32>(VertexCountReadback, &Res->VertexCount));
-			Pool->Push(new ReadbackStreamSingle<int32>(QuadCountReadback, &Res->QuadCount));
+			Pool->Push(new ReadbackStreamSingle<int32>(TriCountReadback, &Res->QuadCount));
 			Pool->Push(new ReadbackStreamVector<FVector3f>(VertexReadback, &Res->Vertices, [Res]() { return Res->VertexCount; }));
 			Pool->Push(new ReadbackStreamVector<FVector3f>(NormalsReadback, &Res->Normals, [Res]() { return Res->VertexCount; }));
-			Pool->Push(new ReadbackStreamVector<FIntVector3>(TrianglesReadback, &Res->Triangles, [Res]() { return Res->QuadCount * 2; }));
+			Pool->Push(new ReadbackStreamVector<FIntVector>(QuadsReadback, &Res->Triangles, [Res]() { return Res->QuadCount; }));
 
 			auto RunnerFunc = [Pool, Res, AsyncCallback](auto&& RunnerFunc) -> void
 			{

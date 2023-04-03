@@ -7,8 +7,8 @@
 
 struct WORLDGOBLINSHADERS_API FQuad
 {
-	FIntVector3 a;
-	FIntVector3 b;
+	FIntVector a;
+	FIntVector b;
 };
 
 struct WORLDGOBLINSHADERS_API FDCVolumeGeneratorDispatchParams
