@@ -253,9 +253,11 @@ struct ReadbackStreamVector : public ReadbackStreamBase
 		if (CountCallback != nullptr)
 			count = CountCallback();
 
+		uint32 size = count * sizeof(T);
+
 		Dest->Init(T(), count);
-		T* data = (T*)Pipe->Lock(count * sizeof(T));
-		FMemory::Memcpy(Dest->GetData(), data, count);
+		T* data = (T*)Pipe->Lock(size);
+		FMemory::Memcpy(Dest->GetData(), data, size);
 		Pipe->Unlock();
 	}
 
@@ -385,11 +387,11 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			auto NormalsBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(NormalsBuffer));
 
 			// Create a counter buffer for quadrilaterals
-			FRDGBufferRef QuadCounterBuffer = GraphBuilder.CreateBuffer(
+			FRDGBufferRef QuadCountBuffer = GraphBuilder.CreateBuffer(
 				FRDGBufferDesc::CreateBufferDesc(sizeof(uint32), 1),
-				TEXT("QuadCounterBuffer"));
+				TEXT("QuadCountBuffer"));
 
-			auto QuadCountBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(QuadCounterBuffer, PF_R32_UINT));
+			auto QuadCountBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(QuadCountBuffer, PF_R32_UINT));
 
 			// Create a buffer for quad
 			FRDGBufferRef QuadsBuffer = GraphBuilder.CreateBuffer(
@@ -439,7 +441,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			FRDGUploadData<uint32> ZeroInit(GraphBuilder, 1);
 			ZeroInit[0] = 0u;
 			GraphBuilder.QueueBufferUpload(VertexCountBuffer, ZeroInit);
-			GraphBuilder.QueueBufferUpload(QuadCounterBuffer, ZeroInit);
+			GraphBuilder.QueueBufferUpload(QuadCountBuffer, ZeroInit);
 
 			/* Volume generation pass */
 			GraphBuilder.AddPass(
@@ -482,7 +484,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			AddEnqueueCopyPass(GraphBuilder, VertexCountReadback, VertexCountBuffer, 0u);
 
 			FRHIGPUBufferReadback* QuadCountReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeQuadCountReadback"));
-			AddEnqueueCopyPass(GraphBuilder, QuadCountReadback, QuadCounterBuffer, 0u);
+			AddEnqueueCopyPass(GraphBuilder, QuadCountReadback, QuadCountBuffer, 0u);
 
 			FRHIGPUBufferReadback* VertexReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeTriangleReadback"));
 			AddEnqueueCopyPass(GraphBuilder, VertexReadback, VertexBuffer, 0u);
@@ -498,10 +500,10 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			ReadbackStreamPool* Pool = new ReadbackStreamPool();
 
 			Pool->Push(new ReadbackStreamSingle<int32>(VertexCountReadback, &Res->VertexCount));
-			Pool->Push(new ReadbackStreamSingle<int32>(QuadCountReadback, &Res->TriangleCount));
+			Pool->Push(new ReadbackStreamSingle<int32>(QuadCountReadback, &Res->QuadCount));
 			Pool->Push(new ReadbackStreamVector<FVector3f>(VertexReadback, &Res->Vertices, [Res]() { return Res->VertexCount; }));
 			Pool->Push(new ReadbackStreamVector<FVector3f>(NormalsReadback, &Res->Normals, [Res]() { return Res->VertexCount; }));
-			Pool->Push(new ReadbackStreamVector<FIntVector3>(TrianglesReadback, &Res->Triangles, [Res]() { return Res->TriangleCount * 3; }));
+			Pool->Push(new ReadbackStreamVector<FIntVector3>(TrianglesReadback, &Res->Triangles, [Res]() { return Res->QuadCount * 2; }));
 
 			auto RunnerFunc = [Pool, Res, AsyncCallback](auto&& RunnerFunc) -> void
 			{

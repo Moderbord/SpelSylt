@@ -55,7 +55,7 @@ public:
 	int32 VertexCount = 0;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
-	int32 TriangleCount = 0;
+	int32 QuadCount = 0;
 };
 
 // This is a public interface that we define so outside code can invoke our compute shader.
