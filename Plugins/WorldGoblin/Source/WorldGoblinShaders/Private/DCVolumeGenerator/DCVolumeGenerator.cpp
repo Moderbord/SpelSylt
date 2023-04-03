@@ -319,7 +319,10 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 		RDG_GPU_STAT_SCOPE(GraphBuilder, DCVolumeGenerator);
 		
 		const int32 VolumeSize = Params.VolumeSize;
+		const int32 IndexDims = VolumeSize - 1;
 		const int32 NumVoxels = VolumeSize * VolumeSize * VolumeSize;
+		const int32 NumIndices = IndexDims * IndexDims * IndexDims;
+
 		const FScene* LocalScene = Params.Scene;
 		const FMaterialRenderProxy* MaterialRenderProxy = nullptr;
 		const FMaterial* MaterialResource = &Params.MaterialRenderProxy->GetMaterialWithFallback(GMaxRHIFeatureLevel, MaterialRenderProxy);
@@ -359,20 +362,15 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 
 			auto VertexCountBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(VertexCountBuffer, PF_R32_UINT));
 
-			// Create a buffer for vertices
-			/*FRDGBufferRef VertexBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector3f), NumVoxels),
-				TEXT("VertexBuffer"));*/
-
 			FRDGBufferRef VertexBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector3f), NumVoxels), 
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector3f), NumIndices), 
 				TEXT("VertexBuffer"));
 			auto VertexBufferUAV = GraphBuilder.CreateUAV(VertexBuffer);
 			//GraphBuilder.CreateUAV()
 
 			// Create a buffer for indices
 			FRDGBufferRef IndexBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(int), NumVoxels),
+				FRDGBufferDesc::CreateBufferDesc(sizeof(int), NumIndices),
 				TEXT("IndexBuffer"));
 
 			auto IndexBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(IndexBuffer, PF_R32_SINT));
@@ -381,7 +379,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			//CreateStructuredBuffer<FVector3f>(GraphBuilder, TEXT("NormalsBuffer"), 
 			// Create a buffer for output normals
 			FRDGBufferRef NormalsBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector3f), NumVoxels),
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector3f), NumIndices),
 				TEXT("NormalsBuffer"));
 
 			auto NormalsBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(NormalsBuffer));
@@ -395,7 +393,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 
 			// Create a buffer for quad
 			FRDGBufferRef QuadsBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateStructuredDesc(sizeof(FQuad), NumVoxels),
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(FQuad), NumIndices * 3),
 				TEXT("QuadsBuffer"));
 
 			auto QuadBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(QuadsBuffer));

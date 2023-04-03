@@ -165,11 +165,11 @@ void DCVertexGenerator(
 {
     
     uint3 id = DispatchThreadId;
-    uint index = GetVoxelIndex(id);
     
     if (CheckEdge(id, 1))
         return;
 
+    uint index = GetVoxelIndex(id);
     Indices[index] = -1;
 
     bool inside[numCorners];
@@ -255,13 +255,12 @@ void DCVertexGenerator(
         vertex = voxelCenter;
 
     vertex *= VolumeScale;
-
-    uint idx = VertexCount[0];
+    
+    uint idx;
+    InterlockedAdd(VertexCount[0], 1, idx);
     
     Vertices[idx] = vertex;
     Normals[idx] = avgNormal;
     Indices[index] = idx;
-    
-    InterlockedAdd(VertexCount[0], 1);
     
 }

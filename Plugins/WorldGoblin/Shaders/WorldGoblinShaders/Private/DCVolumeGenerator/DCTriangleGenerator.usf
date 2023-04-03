@@ -108,7 +108,7 @@ void DCTriangleGenerator(
     if (CheckEdge(id, 2))
         return;
 
-    int v0 = Indices[GetVolumeIndex(id)];
+    int v0 = Indices[GetVoxelIndex(id)];
 	
     if (v0 < 0)
         return;
@@ -150,7 +150,8 @@ void DCTriangleGenerator(
         if (v1 < 0 || v2 < 0 || v3 < 0)
             continue;
 
-        uint idx = QuadCount[0];
+        uint idx;
+        InterlockedAdd(QuadCount[0], 1, idx);
         
         if (inside[edge.x] == (ai == 1))
         {
@@ -167,6 +168,5 @@ void DCTriangleGenerator(
             Quads[idx] = q2;
         }
         
-        InterlockedAdd(QuadCount[0], 1);
     }
 }
