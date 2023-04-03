@@ -24,10 +24,10 @@ struct WORLDGOBLINSHADERS_API FDCVolumeGeneratorDispatchParams
 	uint32 Random;
 
 	/* Triangulation */
-	float VolumeScale = 100.f;
-	float MaxCornerDistance = 100.f;
+	float VolumeScale = 1.0f;
+	float MaxCornerDistance = 1.0f;
 	float CenterBias = 0.01f;
-	float ClampRange = 100.f;
+	float ClampRange = 1.f;
 
 	FDCVolumeGeneratorDispatchParams(AActor* SceneContext, int32 VolumeSize, UMaterialInterface* Generator, FVector3f Position);
 };

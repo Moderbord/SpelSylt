@@ -2,6 +2,7 @@
 #include "/Engine/Public/Platform.ush"
 
 uint VolumeSize;
+float VolumeScale;
 float3 Position;
 
 RWBuffer<float4> SDF;
@@ -48,14 +49,16 @@ void DCVolumeGenerator(
 	uint3 DispatchThreadId : SV_DispatchThreadID,
 	uint GroupIndex : SV_GroupIndex )
 {
-    float3 VoxelPosition = Position + float3(DispatchThreadId);
+    uint3 id = DispatchThreadId;
+	
+    float3 VoxelPosition = Position + float3(id) * VolumeScale;
 	float4 SvPosition = float4(VoxelPosition, 0);
 	
     ResolvedView = ResolveView();
 	
     uint idx = GetVolumeIndex(DispatchThreadId);
 	
-    float d = GetDensity(VoxelPosition);
+    float d = GetDensity(VoxelPosition) / VolumeScale;
     float3 n = CalculateNormal(VoxelPosition);
 	
     SDF[idx] = float4(n, d);
