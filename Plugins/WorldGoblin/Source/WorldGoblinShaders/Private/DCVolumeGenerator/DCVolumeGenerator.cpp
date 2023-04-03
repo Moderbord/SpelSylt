@@ -501,7 +501,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			Pool->Push(new ReadbackStreamSingle<int32>(TriCountReadback, &Res->QuadCount));
 			Pool->Push(new ReadbackStreamVector<FVector3f>(VertexReadback, &Res->Vertices, [Res]() { return Res->VertexCount; }));
 			Pool->Push(new ReadbackStreamVector<FVector3f>(NormalsReadback, &Res->Normals, [Res]() { return Res->VertexCount; }));
-			Pool->Push(new ReadbackStreamVector<FIntVector>(QuadsReadback, &Res->Triangles, [Res]() { return Res->QuadCount; }));
+			Pool->Push(new ReadbackStreamVector<FIntVector>(QuadsReadback, &Res->Triangles, [Res]() { return Res->QuadCount * 2; }));
 
 			auto RunnerFunc = [Pool, Res, AsyncCallback](auto&& RunnerFunc) -> void
 			{
