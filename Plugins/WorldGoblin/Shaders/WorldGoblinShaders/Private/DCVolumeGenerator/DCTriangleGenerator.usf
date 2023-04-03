@@ -150,23 +150,23 @@ void DCTriangleGenerator(
         if (v1 < 0 || v2 < 0 || v3 < 0)
             continue;
 
-        //uint idx = QuadCount[0];
+        uint idx = QuadCount[0];
         
-        //if (inside[edge.x] == (ai == 1))
-        //{
-        //    Quad q1;
-        //    q1.t0 = int3(v0, v1, v3);
-        //    q1.t1 = int3(v0, v3, v2);
-        //    Quads[idx] = q1;
-        //}
-        //else
-        //{
-        //    Quad q2;
-        //    q2.t0 = int3(v0, v3, v1);
-        //    q2.t1 = int3(v0, v2, v3);
-        //    Quads[idx] = q2;
-        //}
+        if (inside[edge.x] == (ai == 1))
+        {
+            Quad q1;
+            q1.t0 = int3(v0, v1, v3);
+            q1.t1 = int3(v0, v3, v2);
+            Quads[idx] = q1;
+        }
+        else
+        {
+            Quad q2;
+            q2.t0 = int3(v0, v3, v1);
+            q2.t1 = int3(v0, v2, v3);
+            Quads[idx] = q2;
+        }
         
-        //InterlockedAdd(QuadCount[0], 1);
+        InterlockedAdd(QuadCount[0], 1);
     }
 }

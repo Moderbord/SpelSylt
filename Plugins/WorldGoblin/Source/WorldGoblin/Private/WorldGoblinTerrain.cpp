@@ -35,7 +35,10 @@ void AWorldGoblinTerrain::Regenerate()
 		[this](bool Success, UDCVolumeResult* Result) 
 		{
 			if (Success)
+			{
 				Volume = Result;
+				OnRegenerateFinished();
+			}
 		});
 }
 

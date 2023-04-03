@@ -58,7 +58,6 @@ public:
 		SHADER_PARAMETER(float, VolumeScale)
 		SHADER_PARAMETER(FVector3f, Position)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector4f>, SDF)
-		
 
 	END_SHADER_PARAMETER_STRUCT()
 
@@ -120,8 +119,8 @@ public:
 		SHADER_PARAMETER_RDG_BUFFER_SRV(Buffer<FVector4f>, SDF)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint32>, VertexCount)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<int>, Indices)
-		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector3f>, Vertices)
-		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector3f>, Normals)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FVector3f>, Vertices)
+		SHADER_PARAMETER_RDG_BUFFER_UAV(RWStructuredBuffer<FVector3f>, Normals)
 	END_SHADER_PARAMETER_STRUCT()
 
 public:
@@ -198,7 +197,112 @@ private:
 //                            ShaderType                            ShaderPath                     Shader function name    Type
 IMPLEMENT_MATERIAL_SHADER_TYPE(, FDCTriangleGenerator, TEXT("/WorldGoblinShadersShaders/DCVolumeGenerator/DCTriangleGenerator.usf"), TEXT("DCTriangleGenerator"), SF_Compute);
 
+struct ReadbackStreamBase
+{
+	FRHIGPUBufferReadback* Pipe;
 
+	virtual void Read() = 0;
+
+	virtual bool IsReady()
+	{
+		return Pipe->IsReady();
+	}
+
+	ReadbackStreamBase(FRHIGPUBufferReadback* Pipe)
+		: Pipe(Pipe) { }
+
+	ReadbackStreamBase()
+		: Pipe(nullptr) { }
+
+	virtual ~ReadbackStreamBase() 
+	{
+		delete Pipe;
+	};
+};
+
+template <typename T>
+struct ReadbackStreamSingle : public ReadbackStreamBase
+{
+	T* Dest;
+
+	void Read() override
+	{
+		T* data = (T*)Pipe->Lock(sizeof(T));
+		*Dest = data[0];
+		Pipe->Unlock();
+	}
+
+	ReadbackStreamSingle(FRHIGPUBufferReadback* Pipe, T* Dest)
+		: ReadbackStreamBase(Pipe), Dest(Dest) { }
+
+	ReadbackStreamSingle()
+		: ReadbackStreamSingle(nullptr, nullptr) { }
+};
+
+template <typename T>
+struct ReadbackStreamVector : public ReadbackStreamBase
+{
+	TArray<T>* Dest;
+	uint32 Count;
+	TFunction<uint32()> CountCallback;
+
+	void Read() override
+	{
+		uint32 count = Count;
+
+		if (CountCallback != nullptr)
+			count = CountCallback();
+
+		Dest->Init(T(), count);
+		T* data = (T*)Pipe->Lock(count * sizeof(T));
+		FMemory::Memcpy(Dest->GetData(), data, count);
+		Pipe->Unlock();
+	}
+
+	ReadbackStreamVector(FRHIGPUBufferReadback* Pipe, TArray<T>* Dest, uint32 Count)
+		: ReadbackStreamBase(Pipe), Dest(Dest), Count(Count), CountCallback(nullptr) { }
+
+	ReadbackStreamVector(FRHIGPUBufferReadback* Pipe, TArray<T>* Dest, TFunction<uint32()> CountCallback)
+		: ReadbackStreamBase(Pipe), Dest(Dest), Count(0u), CountCallback(CountCallback) { }
+
+	ReadbackStreamVector()
+		: ReadbackStreamVector(nullptr, nullptr, 0u) { }
+};
+
+struct ReadbackStreamPool
+{
+	TArray<ReadbackStreamBase*> Pipes;
+
+	void Push(ReadbackStreamBase* Pipe)
+	{
+		Pipes.Add(Pipe);
+	}
+
+	void ReadNext()
+	{
+		if (IsFinished())
+			return;
+
+		ReadbackStreamBase* pipe = Pipes[0];
+
+		if (pipe->IsReady())
+		{
+			pipe->Read();
+			Pipes.RemoveAt(0);
+			delete pipe;
+		}
+	}
+
+	bool IsFinished() const
+	{
+		return Pipes.IsEmpty();
+	}
+
+	ReadbackStreamPool()
+	{
+
+	}
+};
 
 
 void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatchParams Params, TFunction<void(bool Success, UDCVolumeResult* Result)> AsyncCallback)
@@ -254,11 +358,15 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			auto VertexCountBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(VertexCountBuffer, PF_R32_UINT));
 
 			// Create a buffer for vertices
-			FRDGBufferRef VertexBuffer = GraphBuilder.CreateBuffer(
+			/*FRDGBufferRef VertexBuffer = GraphBuilder.CreateBuffer(
 				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector3f), NumVoxels),
-				TEXT("VertexBuffer"));
+				TEXT("VertexBuffer"));*/
 
-			auto VertexBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(VertexBuffer, PF_R32_FLOAT));
+			FRDGBufferRef VertexBuffer = GraphBuilder.CreateBuffer(
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector3f), NumVoxels), 
+				TEXT("VertexBuffer"));
+			auto VertexBufferUAV = GraphBuilder.CreateUAV(VertexBuffer);
+			//GraphBuilder.CreateUAV()
 
 			// Create a buffer for indices
 			FRDGBufferRef IndexBuffer = GraphBuilder.CreateBuffer(
@@ -268,12 +376,13 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			auto IndexBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(IndexBuffer, PF_R32_SINT));
 			auto IndexBufferSRV = GraphBuilder.CreateSRV(FRDGBufferSRVDesc(IndexBuffer, PF_R32_SINT));
 
+			//CreateStructuredBuffer<FVector3f>(GraphBuilder, TEXT("NormalsBuffer"), 
 			// Create a buffer for output normals
 			FRDGBufferRef NormalsBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(FVector3f), NumVoxels),
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(FVector3f), NumVoxels),
 				TEXT("NormalsBuffer"));
 
-			auto NormalsBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(NormalsBuffer, PF_R32_FLOAT));
+			auto NormalsBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(NormalsBuffer));
 
 			// Create a counter buffer for quadrilaterals
 			FRDGBufferRef QuadCounterBuffer = GraphBuilder.CreateBuffer(
@@ -284,10 +393,10 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 
 			// Create a buffer for quad
 			FRDGBufferRef QuadsBuffer = GraphBuilder.CreateBuffer(
-				FRDGBufferDesc::CreateBufferDesc(sizeof(FQuad), NumVoxels),
+				FRDGBufferDesc::CreateStructuredDesc(sizeof(FQuad), NumVoxels),
 				TEXT("QuadsBuffer"));
 
-			auto QuadBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(QuadsBuffer, PF_R32_SINT));
+			auto QuadBufferUAV = GraphBuilder.CreateUAV(FRDGBufferUAVDesc(QuadsBuffer));
 			
 			// Create a view uniform buffer for the generator material and fill it with whatever is necessary
 			FViewUniformShaderParameters ViewUniformShaderParameters;
@@ -330,6 +439,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			FRDGUploadData<uint32> ZeroInit(GraphBuilder, 1);
 			ZeroInit[0] = 0u;
 			GraphBuilder.QueueBufferUpload(VertexCountBuffer, ZeroInit);
+			GraphBuilder.QueueBufferUpload(QuadCounterBuffer, ZeroInit);
 
 			/* Volume generation pass */
 			GraphBuilder.AddPass(
@@ -370,52 +480,45 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 
 			FRHIGPUBufferReadback* VertexCountReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeVertexCountReadback"));
 			AddEnqueueCopyPass(GraphBuilder, VertexCountReadback, VertexCountBuffer, 0u);
-			
-			FRHIGPUBufferReadback* SDFReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeDensityExtraction"));
-			AddEnqueueCopyPass(GraphBuilder, SDFReadback, SDFBuffer, 0u);
 
+			FRHIGPUBufferReadback* QuadCountReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeQuadCountReadback"));
+			AddEnqueueCopyPass(GraphBuilder, QuadCountReadback, QuadCounterBuffer, 0u);
 
-			//
-			//FRHIGPUBufferReadback* TriangleReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeTriangleReadback"));
-			//AddEnqueueCopyPass(GraphBuilder, TriangleReadback, QuadsBuffer, 0u);
-			//
-			//FRHIGPUBufferReadback* NormalsReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeNormalReadback"));
-			//AddEnqueueCopyPass(GraphBuilder, NormalsReadback, OutNormalsBuffer, 0u);
+			FRHIGPUBufferReadback* VertexReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeTriangleReadback"));
+			AddEnqueueCopyPass(GraphBuilder, VertexReadback, VertexBuffer, 0u);
 
-			auto RunnerFunc = [SDFReadback, VertexCountReadback, GroupCount, NumVoxels, AsyncCallback](auto&& RunnerFunc) -> void {
-				if (SDFReadback->IsReady() && VertexCountReadback->IsReady())
+			FRHIGPUBufferReadback* NormalsReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeNormalReadback"));
+			AddEnqueueCopyPass(GraphBuilder, NormalsReadback, NormalsBuffer, 0u);
+
+			FRHIGPUBufferReadback* TrianglesReadback = new FRHIGPUBufferReadback(TEXT("DCVolumeIndexReadback"));
+			AddEnqueueCopyPass(GraphBuilder, TrianglesReadback, IndexBuffer, 0u);
+
+			UDCVolumeResult* Res = NewObject<UDCVolumeResult>();
+
+			ReadbackStreamPool* Pool = new ReadbackStreamPool();
+
+			Pool->Push(new ReadbackStreamSingle<int32>(VertexCountReadback, &Res->VertexCount));
+			Pool->Push(new ReadbackStreamSingle<int32>(QuadCountReadback, &Res->TriangleCount));
+			Pool->Push(new ReadbackStreamVector<FVector3f>(VertexReadback, &Res->Vertices, [Res]() { return Res->VertexCount; }));
+			Pool->Push(new ReadbackStreamVector<FVector3f>(NormalsReadback, &Res->Normals, [Res]() { return Res->VertexCount; }));
+			Pool->Push(new ReadbackStreamVector<FIntVector3>(TrianglesReadback, &Res->Triangles, [Res]() { return Res->TriangleCount * 3; }));
+
+			auto RunnerFunc = [Pool, Res, AsyncCallback](auto&& RunnerFunc) -> void
+			{
+
+				if (Pool->IsFinished())
 				{
-					
-					UDCVolumeResult* Res = NewObject<UDCVolumeResult>();
-
-					uint32 atomicCounterSize = 1 * sizeof(uint32);
-					uint32* vertexCountBuffer = (uint32*)VertexCountReadback->Lock(atomicCounterSize);
-					Res->VertexCount = (int32)vertexCountBuffer[0];
-					VertexCountReadback->Unlock();
-
-					uint32 fieldDataSize = NumVoxels * sizeof(FVector4f);
-					FVector4f* fieldBuffer = (FVector4f*)SDFReadback->Lock(fieldDataSize);
-					Res->SDF.Init(FVector3f(0.f), NumVoxels);
-					FMemory::Memcpy(Res->SDF.GetData(), fieldBuffer, fieldDataSize);
-					SDFReadback->Unlock();
-
-					AsyncTask(ENamedThreads::GameThread, [AsyncCallback, Res]() {
-						AsyncCallback(true, Res);
-					});
-
-					delete VertexCountReadback;
-					delete SDFReadback;
-
-				} else {
-					AsyncTask(ENamedThreads::ActualRenderingThread, [RunnerFunc]() {
-						RunnerFunc(RunnerFunc);
-					});
+					delete Pool;
+					AsyncTask(ENamedThreads::GameThread, [AsyncCallback, Res]() { AsyncCallback(true, Res); });
+				}
+				else
+				{
+					Pool->ReadNext();
+					AsyncTask(ENamedThreads::ActualRenderingThread, [RunnerFunc]() { RunnerFunc(RunnerFunc); });
 				}
 			};
 
-			AsyncTask(ENamedThreads::ActualRenderingThread, [RunnerFunc]() {
-				RunnerFunc(RunnerFunc);
-			});
+			AsyncTask(ENamedThreads::ActualRenderingThread, [RunnerFunc]() { RunnerFunc(RunnerFunc); });
 			
 		} else {
 			#if WITH_EDITOR

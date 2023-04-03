@@ -39,11 +39,23 @@ class WORLDGOBLINSHADERS_API UDCVolumeResult : public UObject
 
 public:
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	UPROPERTY(BlueprintReadOnly)
 	TArray<FVector4f> SDF;
+
+	UPROPERTY(BlueprintReadOnly)
+	TArray<FVector3f> Vertices;
+
+	UPROPERTY(BlueprintReadOnly)
+	TArray<FVector3f> Normals;
+
+	UPROPERTY(BlueprintReadOnly)
+	TArray<FIntVector> Triangles;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	int32 VertexCount = 0;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
+	int32 TriangleCount = 0;
 };
 
 // This is a public interface that we define so outside code can invoke our compute shader.

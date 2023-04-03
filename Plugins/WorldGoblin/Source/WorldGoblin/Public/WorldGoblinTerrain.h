@@ -26,6 +26,9 @@ public:
 	UFUNCTION(BlueprintCallable)
 	void Regenerate();
 
+	UFUNCTION(BlueprintImplementableEvent)
+	void OnRegenerateFinished();
+
 public:
 
 	/** Please add a variable description */
