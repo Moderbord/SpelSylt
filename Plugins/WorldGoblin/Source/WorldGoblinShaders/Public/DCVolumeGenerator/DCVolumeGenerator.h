@@ -27,7 +27,7 @@ struct WORLDGOBLINSHADERS_API FDCVolumeGeneratorDispatchParams
 	float VolumeScale = 1.0f;
 	float MaxCornerDistance = 1.0f;
 	float CenterBias = 0.01f;
-	float ClampRange = 1.f;
+	float ClampRange = 1.0f;
 
 	FDCVolumeGeneratorDispatchParams(AActor* SceneContext, int32 VolumeSize, UMaterialInterface* Generator, FVector3f Position);
 };

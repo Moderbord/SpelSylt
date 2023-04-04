@@ -31,6 +31,12 @@ void AWorldGoblinTerrain::Regenerate()
 	FVector3f location = FVector3f(GetActorLocation());
 
 	FDCVolumeGeneratorDispatchParams Params(this, 32, Generator, location);
+
+	Params.VolumeScale = VolumeScale;
+	Params.MaxCornerDistance = MaxCornerDistance;
+	Params.CenterBias = CenterBias;
+	Params.ClampRange = ClampRange;
+
 	FDCVolumeGeneratorInterface::Dispatch(Params, 
 		[this](bool Success, UDCVolumeResult* Result) 
 		{

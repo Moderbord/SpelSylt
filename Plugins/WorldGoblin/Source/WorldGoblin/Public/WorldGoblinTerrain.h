@@ -38,8 +38,17 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere)
 	int32 VolumeSize = 32;
 
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
-	float ChunkSize = 1000.f;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float VolumeScale = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float MaxCornerDistance = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float CenterBias = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float ClampRange = 1.0f;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	FVector3f Result = FVector3f(0.f);
