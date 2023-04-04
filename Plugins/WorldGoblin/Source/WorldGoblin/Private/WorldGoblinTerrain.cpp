@@ -36,6 +36,7 @@ void AWorldGoblinTerrain::Regenerate()
 	Params.MaxCornerDistance = MaxCornerDistance;
 	Params.CenterBias = CenterBias;
 	Params.ClampRange = ClampRange;
+	Params.NormalSampleStep = NormalSampleStep;
 
 	FDCVolumeGeneratorInterface::Dispatch(Params, 
 		[this](bool Success, UDCVolumeResult* Result) 

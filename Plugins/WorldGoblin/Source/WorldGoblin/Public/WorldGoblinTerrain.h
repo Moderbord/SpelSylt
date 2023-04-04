@@ -50,6 +50,9 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite)
 	float ClampRange = 1.0f;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	float NormalSampleStep = 0.0001f;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly)
 	FVector3f Result = FVector3f(0.f);
 

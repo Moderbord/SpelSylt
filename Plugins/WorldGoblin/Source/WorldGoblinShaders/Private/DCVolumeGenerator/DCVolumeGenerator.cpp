@@ -56,6 +56,7 @@ public:
 
 		SHADER_PARAMETER(uint32, VolumeSize)
 		SHADER_PARAMETER(float, VolumeScale)
+		SHADER_PARAMETER(float, NormalSampleStep)
 		SHADER_PARAMETER(FVector3f, Position)
 		SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<FVector4f>, SDF)
 
@@ -410,6 +411,7 @@ void FDCVolumeGeneratorInterface::DispatchRenderThread(FDCVolumeGeneratorDispatc
 			VolumePassParameters->View = ViewUniformBuffer;
 			VolumePassParameters->VolumeSize = Params.VolumeSize;
 			VolumePassParameters->VolumeScale = Params.VolumeScale;
+			VolumePassParameters->NormalSampleStep = Params.NormalSampleStep;
 			VolumePassParameters->Position = Params.Position;
 			VolumePassParameters->SDF = SDFBufferUAV;
 
