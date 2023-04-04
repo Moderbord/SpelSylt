@@ -3,6 +3,7 @@
 
 uint VolumeSize;
 float VolumeScale;
+float NormalSampleStep;
 float3 Position;
 
 RWBuffer<float4> SDF;
@@ -59,7 +60,7 @@ void DCVolumeGenerator(
     uint idx = GetVolumeIndex(DispatchThreadId);
 	
     float d = GetDensity(VoxelPosition) / VolumeScale;
-    float3 n = CalculateNormal(VoxelPosition);
+    float3 n = CalculateNormal(VoxelPosition, NormalSampleStep);
 	
     SDF[idx] = float4(n, d);
 
