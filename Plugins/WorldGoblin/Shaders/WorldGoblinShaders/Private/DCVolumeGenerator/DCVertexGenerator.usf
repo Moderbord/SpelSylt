@@ -7,6 +7,8 @@ float CenterBias;
 float ClampRange;
 float3 Position;
 
+static const float BaseScale = 100.0f;
+
 // Volume input
 Buffer<float4> SDF;
 
@@ -254,7 +256,7 @@ void DCVertexGenerator(
     else
         vertex = voxelCenter;
 
-    vertex *= VolumeScale;
+    vertex *= (BaseScale * VolumeScale);
     
     uint idx;
     InterlockedAdd(VertexCount[0], 1, idx);
