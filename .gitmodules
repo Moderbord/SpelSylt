@@ -1,0 +1,20 @@
+[submodule "Plugins/LowEntryExtStdLib"]
+	path = Plugins/LowEntryExtStdLib
+	url = https://bitbucket.org/lowentry/plugin_ue4_extendedstandardlibrary.git
+	branch = master
+[submodule "Plugins/HoudiniEngine"]
+	path = Plugins/HoudiniEngine
+	url = https://github.com/sideeffects/HoudiniEngineForUnreal.git
+	branch = Houdini20.0-Unreal5.00
+[submodule "Plugins/DlgSystem"]
+	path = Plugins/DlgSystem
+	url = https://github.com/NotYetGames/DlgSystem.git
+	branch = master
+[submodule "Plugins/FMODStudio"]
+	path = Plugins/FMODStudio
+	url = https://github.com/fmod/fmod-for-unreal.git
+	branch = 2.02-UE5.3
+	ignore = all
+[submodule "Plugins/SPUD"]
+	path = Plugins/SPUD
+	url = https://github.com/sinbad/SPUD.git
