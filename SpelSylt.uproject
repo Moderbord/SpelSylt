@@ -72,6 +72,14 @@
 				"Win64",
 				"Linux"
 			]
+		},
+		{
+			"Name": "HoudiniEngine",
+			"Enabled": true
+		},
+		{
+			"Name": "FMODStudioNiagara",
+			"Enabled": true
 		}
 	]
 }
